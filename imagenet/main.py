@@ -77,6 +77,7 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
                          'fastest way to use PyTorch for either single node or '
                          'multi node data parallel training')
 parser.add_argument('--dummy', action='store_true', help="use fake data to benchmark")
+parser.add_argument('--steps', default=0, type=int, metavar='S', help='number of steps to run')
 
 best_acc1 = 0
 
@@ -194,10 +195,14 @@ def main_worker(gpu, ngpus_per_node, args):
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
-    
+
+    """Adds loss scaler"""
+    scaler = torch.cuda.amp.GradScaler()
+
+
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
-    scheduler = StepLR(optimizer, step_size=30, gamma=0.1)
-    
+    scheduler = StepLR(optimizer, step_size=20, gamma=0.1)
+
     # optionally resume from a checkpoint
     if args.resume:
         if os.path.isfile(args.resume):
@@ -229,7 +234,7 @@ def main_worker(gpu, ngpus_per_node, args):
         val_dataset = datasets.FakeData(50000, (3, 224, 224), 1000, transforms.ToTensor())
     else:
         traindir = os.path.join(args.data, 'train')
-        valdir = os.path.join(args.data, 'val')
+        valdir = os.path.join(args.data, 'validation')
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
 
@@ -275,7 +280,7 @@ def main_worker(gpu, ngpus_per_node, args):
             train_sampler.set_epoch(epoch)
 
         # train for one epoch
-        train(train_loader, model, criterion, optimizer, epoch, device, args)
+        train(train_loader, model, criterion, optimizer, epoch, device, scaler, args)
 
         # evaluate on validation set
         acc1 = validate(val_loader, model, criterion, args)
@@ -298,7 +303,7 @@ def main_worker(gpu, ngpus_per_node, args):
             }, is_best)
 
 
-def train(train_loader, model, criterion, optimizer, epoch, device, args):
+def train(train_loader, model, criterion, optimizer, epoch, device, scaler, args):
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
@@ -322,8 +327,9 @@ def train(train_loader, model, criterion, optimizer, epoch, device, args):
         target = target.to(device, non_blocking=True)
 
         # compute output
-        output = model(images)
-        loss = criterion(output, target)
+        with torch.cuda.amp.autocast(dtype=torch.float16):
+            output = model(images)
+            loss = criterion(output, target)
 
         # measure accuracy and record loss
         acc1, acc5 = accuracy(output, target, topk=(1, 5))
@@ -333,8 +339,12 @@ def train(train_loader, model, criterion, optimizer, epoch, device, args):
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
+
+
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -342,6 +352,13 @@ def train(train_loader, model, criterion, optimizer, epoch, device, args):
 
         if i % args.print_freq == 0:
             progress.display(i + 1)
+
+
+        if args.steps > 0:
+            if i == args.steps:
+                print("BREAKING OUT OF MAIN TRAIN LOOP")
+                break;
+
 
 
 def validate(val_loader, model, criterion, args):
@@ -360,8 +377,9 @@ def validate(val_loader, model, criterion, args):
                     target = target.cuda(args.gpu, non_blocking=True)
 
                 # compute output
-                output = model(images)
-                loss = criterion(output, target)
+                with torch.cuda.amp.autocast(dtype=torch.float16):
+                    output = model(images)
+                    loss = criterion(output, target)
 
                 # measure accuracy and record loss
                 acc1, acc5 = accuracy(output, target, topk=(1, 5))
@@ -375,6 +393,11 @@ def validate(val_loader, model, criterion, args):
 
                 if i % args.print_freq == 0:
                     progress.display(i + 1)
+
+                if args.steps > 0:
+                    if i == args.steps:
+                        print("BREAKING OUT OF MAIN VALIDATION LOOP")
+                        break;
 
     batch_time = AverageMeter('Time', ':6.3f', Summary.NONE)
     losses = AverageMeter('Loss', ':.4e', Summary.NONE)
@@ -444,7 +467,7 @@ class AverageMeter(object):
             device = torch.device("mps")
         else:
             device = torch.device("cpu")
-        total = torch.tensor([self.sum, self.count], dtype=torch.float32, device=device)
+        total = torch.tensor([self.sum, self.count], dtype=torch.float16, device=device)
         dist.all_reduce(total, dist.ReduceOp.SUM, async_op=False)
         self.sum, self.count = total.tolist()
         self.avg = self.sum / self.count
