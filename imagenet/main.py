@@ -78,6 +78,7 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
                          'multi node data parallel training')
 parser.add_argument('--dummy', action='store_true', help="use fake data to benchmark")
 parser.add_argument('--steps', default=0, type=int, metavar='S', help='number of steps to run')
+parser.add_argument('--warmup', default=-1, type=int, metavar='W', help='number of steps to skip before displaying data')
 
 best_acc1 = 0
 
@@ -347,7 +348,8 @@ def train(train_loader, model, criterion, optimizer, epoch, device, scaler, args
 
 
         # measure elapsed time
-        batch_time.update(time.time() - end)
+        if i >= args.warmup:
+            batch_time.update(time.time() - end)
         end = time.time()
 
         if i % args.print_freq == 0:
@@ -394,10 +396,10 @@ def validate(val_loader, model, criterion, args):
                 if i % args.print_freq == 0:
                     progress.display(i + 1)
 
-                if args.steps > 0:
-                    if i == args.steps:
-                        print("BREAKING OUT OF MAIN VALIDATION LOOP")
-                        break;
+                #if args.steps > 0:
+                #    if i == args.steps:
+                #        print("BREAKING OUT OF MAIN VALIDATION LOOP")
+                #        break;
 
     batch_time = AverageMeter('Time', ':6.3f', Summary.NONE)
     losses = AverageMeter('Loss', ':.4e', Summary.NONE)
@@ -423,6 +425,8 @@ def validate(val_loader, model, criterion, args):
             aux_val_dataset, batch_size=args.batch_size, shuffle=False,
             num_workers=args.workers, pin_memory=True)
         run_validate(aux_val_loader, len(val_loader))
+
+
 
     progress.display_summary()
 
@@ -501,6 +505,9 @@ class ProgressMeter(object):
     def display(self, batch):
         entries = [self.prefix + self.batch_fmtstr.format(batch)]
         entries += [str(meter) for meter in self.meters]
+        #print("HEREvvv")
+        #print(str(self.meters))
+        #print("^^^^^^")
         print('\t'.join(entries))
         
     def display_summary(self):

@@ -5,7 +5,7 @@ export HSA_DISABLE_CACHE=1
 # F8 specific envs
 export F8_CONFIRM=0
 export ENABLE_F8_GEMM=0
-export ENABLE_F8_CONV=0
+export ENABLE_F8_CONV=1
 export F8_SIM=0
 
 
@@ -14,7 +14,7 @@ export F8_SIM=0
 
 
 # rocBLAS output
-#export ROCBLAS_LAYER=2
+export ROCBLAS_LAYER=2
 
 # rocBLAS numerical checking
 #export ROCBLAS_CHECK_NUMERICS=2
@@ -27,10 +27,10 @@ export F8_SIM=0
 export MIOPEN_DISABLE_CACHE=1
 
 #MIOpen logging
-export MIOPEN_ENABLE_LOGGING=0
+export MIOPEN_ENABLE_LOGGING=1
 #export MIOPEN_ENABLE_LOGGING_MPMT=0
-#export MIOPEN_ENABLE_LOGGING_CMD=1
-export MIOPEN_LOG_LEVEL=1
+export MIOPEN_ENABLE_LOGGING_CMD=1
+export MIOPEN_LOG_LEVEL=7
 
 
 #python3 main.py -a resnet50 --lr 9.1 --wd 0.0002 --epochs 1 --batch-size 256 -j 32 -p 10 --gpu 0 /home/imagenet
@@ -43,7 +43,7 @@ export MIOPEN_LOG_LEVEL=1
 
 
 
-python3 main.py -a resnet50 --print-freq 1 --lr 0.1 /home/imagenet
+python3 main.py -a resnet50 --warmup 5 --steps 50 --epochs 1 --print-freq 1 --lr 0.1 /home/imagenet
 
 
 # multi GPU sim run
